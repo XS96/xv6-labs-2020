@@ -6,20 +6,22 @@
 char*
 fmtname(char *path)
 {
-  static char buf[DIRSIZ+1];
-  char *p;
+	// 定义一个静态缓冲区 buf，其大小为 DIRSIZ+1。DIRSIZ 通常是一个预定义的常量，表示目录名的最大长度
+	static char buf[DIRSIZ+1];
+	char *p;
 
-  // Find first character after last slash.
-  for(p=path+strlen(path); p >= path && *p != '/'; p--)
-    ;
-  p++;
+	// 找到路径中最后一个斜杠的位置
+	for(p=path+strlen(path); p >= path && *p != '/'; p--)
+		;
+	p++;	// 将 p 向前移动一位，使其指向斜杠之后的第一个字符，即文件名的开始
 
-  // Return blank-padded name.
-  if(strlen(p) >= DIRSIZ)
-    return p;
-  memmove(buf, p, strlen(p));
-  memset(buf+strlen(p), ' ', DIRSIZ-strlen(p));
-  return buf;
+	// 如果文件名长度超过或等于 DIRSIZ，直接返回文件名
+	if(strlen(p) >= DIRSIZ)
+		return p;
+	// 将文件名复制到缓冲区 buf， 用空格填充缓冲区的剩余部分 使对齐
+	memmove(buf, p, strlen(p));
+	memset(buf+strlen(p), ' ', DIRSIZ-strlen(p));
+	return buf;
 }
 
 void
