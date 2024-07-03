@@ -15,6 +15,10 @@ struct proc *initproc;
 int nextpid = 1;
 struct spinlock pid_lock;
 
+// lab3.2
+extern pagetable_t kernel_pagetable;
+extern void freewalk(pagetable_t pagetable);
+
 extern void forkret(void);
 static void wakeup1(struct proc *chan);
 static void freeproc(struct proc *p);
@@ -26,21 +30,27 @@ void
 procinit(void)
 {
   struct proc *p;
-  
+  // initlock 用于初始化锁 pid_lock，锁的名称为 "nextpid"。这把锁用于保护进程 ID 分配的并发访问
   initlock(&pid_lock, "nextpid");
+  // 初始化每个进程的相关资源
   for(p = proc; p < &proc[NPROC]; p++) {
-      initlock(&p->lock, "proc");
+    initlock(&p->lock, "proc");
 
       // Allocate a page for the process's kernel stack.
       // Map it high in memory, followed by an invalid
       // guard page.
-      char *pa = kalloc();
-      if(pa == 0)
-        panic("kalloc");
-      uint64 va = KSTACK((int) (p - proc));
-      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-      p->kstack = va;
+      // 使用 kalloc 为进程的内核栈分配一页内存
+//      char *pa = kalloc();
+//      if(pa == 0)
+//        panic("kalloc");
+//      // 计算内核栈的虚拟地址 va，使用 KSTACK 宏，传入当前进程在 proc 数组中的索引
+//      uint64 va = KSTACK((int) (p - proc));
+//      // 将虚拟地址 va 映射到物理地址 pa，权限为读写
+//      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+//      // 将内核栈的虚拟地址 va 存储到进程结构体的 p->kstack 字段
+//      p->kstack = va;
   }
+  // 切换到内核的页表并启用分页
   kvminithart();
 }
 
@@ -94,6 +104,7 @@ allocproc(void)
 {
   struct proc *p;
 
+  // 遍历进程表，寻找状态为 UNUSED 的进程
   for(p = proc; p < &proc[NPROC]; p++) {
     acquire(&p->lock);
     if(p->state == UNUSED) {
@@ -105,15 +116,16 @@ allocproc(void)
   return 0;
 
 found:
+  // 找到一个 UNUSED 状态的进程，分配一个新的 PID
   p->pid = allocpid();
 
-  // Allocate a trapframe page.
+  // 为陷阱帧分配一页内存
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     release(&p->lock);
     return 0;
   }
 
-  // An empty user page table.
+  // 创建一个空的用户页表
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
     freeproc(p);
@@ -121,8 +133,32 @@ found:
     return 0;
   }
 
+  // lab3.2 创建进程的内核页表
+  p->kenel_pagetable = prockvminit();
+  if(p->kenel_pagetable == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
+  // lab3.2 迁移procinit中进程的内核栈与内核页表的映射代码
+  char *pa = kalloc();
+  if(pa == 0)
+    panic("kalloc");
+  // 计算内核栈的虚拟地址 va，使用 KSTACK 宏，传入当前进程在 proc 数组中的索引
+  uint64 va = KSTACK((int) 0);
+  // 将虚拟地址 va 映射到物理地址 pa，权限为读写
+  // kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+  uvmmap(p->kenel_pagetable, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+//  if(mappages(p->kenel_pagetable, va, PGSIZE, (uint64)pa, PTE_R | PTE_W) != 0)
+//    panic("allocproc mappages");
+  // 将内核栈的虚拟地址 va 存储到进程结构体的 p->kstack 字段
+  p->kstack = va;
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
+  // 清空上下文结构体 context，并设置返回地址 ra 为 forkret 函数，栈指针 sp 指向内核栈的顶部（p->kstack + PGSIZE）
+  // 当进程第一次被调度运行时，会从 forkret 函数开始执行
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
@@ -150,6 +186,19 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+
+    // lab3.2 在freeproc中释放一个进程的内核页表
+//  if(p->kenel_pagetable) {
+//    uvmunmap(p->kenel_pagetable, p->kstack, 1, 1);
+//    proc_freekpagetable(p->kenel_pagetable);
+//  }
+//  void *kstack_pa = (void *)kvmpa(p->kstack);
+//  kfree(kstack_pa);
+  uvmunmap(p->kenel_pagetable, p->kstack, 1, 1);
+  p->kstack = 0;
+  if(p->kenel_pagetable)
+    proc_freekpagetable(p->kenel_pagetable);
+  p->kenel_pagetable = 0;
 }
 
 // Create a user page table for a given process,
@@ -193,6 +242,24 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
   uvmfree(pagetable, sz);
+}
+
+// lab3.2
+void
+proc_freekpagetable(pagetable_t pagetable)
+{
+    // similar to the freewalk method
+    // there are 2^9 = 512 PTEs in a page table.
+  for(int i = 0; i < 512; i++){
+    pte_t pte = pagetable[i];
+    uint64 child = PTE2PA(pte);
+    if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){ // 如果该页表项指向更低一级的页表
+      // 递归释放低一级页表及其页表项
+      proc_freekpagetable((pagetable_t)child);
+      pagetable[i] = 0;
+    }
+  }
+  kfree((void*)pagetable); // 释放当前级别页表所占用空间
 }
 
 // a user program that calls exec("/init")
@@ -453,37 +520,53 @@ wait(uint64 addr)
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
+// 进程调度器
+/**
+ * 这个调度器实现了一个简单的循环，遍历进程表，找到可运行的进程，并切换到该进程执行。
+ * 如果没有找到可运行的进程，调度器会进入低功耗状态，等待中断。
+ * 通过这种方式，调度器确保每个进程都有机会得到执行，同时避免 CPU 忙等待，提升系统效率。
+ */
 void
 scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
-  
   c->proc = 0;
+
   for(;;){
-    // Avoid deadlock by ensuring that devices can interrupt.
+    // 打开中断，确保设备可以中断当前操作，避免死锁
     intr_on();
     
     int found = 0;
+    // 遍历进程表
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
+        // 切换到选定的进程。进程的任务是释放其锁然后在跳回调度器之前重新获取它
+        // 找到一个 RUNNABLE 状态的进程，将其状态设为 RUNNING
         p->state = RUNNING;
+        // 将当前 CPU 的 proc 指针指向该进程
         c->proc = p;
+
+        // lab3.2 加载进程的内核页表到核心的satp寄存器
+        w_satp(MAKE_SATP(p->kenel_pagetable));
+        sfence_vma();
+
+        // 调用 swtch 函数，切换到该进程的上下文，即开始运行该进程
         swtch(&c->context, &p->context);
 
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
+        // lab3.2 结束时切换回原来的内核页表
+        kvminithart();
 
+        // 进程暂时运行完毕 切换回调度器后，将当前 CPU 的 proc 指针设为 0
+        c->proc = 0;
+        // 设置 found 标志，表示找到了一个可运行的进程
         found = 1;
       }
       release(&p->lock);
     }
 #if !defined (LAB_FS)
+    // 如果没有找到任何 `RUNNABLE` 状态的进程，打开中断并执行 `wfi`（等待中断）指令，使 CPU 进入低功耗状态，等待下一个中断
     if(found == 0) {
       intr_on();
       asm volatile("wfi");

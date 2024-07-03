@@ -38,15 +38,18 @@ sys_wait(void)
   return wait(p);
 }
 
+// 扩展进程的地址空间
 uint64
 sys_sbrk(void)
 {
   int addr;
   int n;
-
+  // 获取系统调用参数 从系统调用的第一个参数中读取整数值 n
   if(argint(0, &n) < 0)
     return -1;
+  // 获取当前进程的地址空间大小
   addr = myproc()->sz;
+  // 扩展进程地址空间
   if(growproc(n) < 0)
     return -1;
   return addr;

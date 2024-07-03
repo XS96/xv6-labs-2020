@@ -8,6 +8,7 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+struct proc;
 #ifdef LAB_NET
 struct mbuf;
 struct sock;
@@ -92,6 +93,8 @@ int             fork(void);
 int             growproc(int);
 pagetable_t     proc_pagetable(struct proc *);
 void            proc_freepagetable(pagetable_t, uint64);
+// lab3.2 在freeproc中释放一个进程的内核页表
+void            proc_freekpagetable(pagetable_t);
 int             kill(int);
 struct cpu*     mycpu(void);
 struct cpu*     getmycpu(void);
@@ -159,6 +162,10 @@ int             uartgetc(void);
 
 // vm.c
 void            kvminit(void);
+// lab3.2
+void            uvmmap(pagetable_t, uint64, uint64, uint64, int);
+pagetable_t     prockvminit(void);
+
 void            kvminithart(void);
 uint64          kvmpa(uint64);
 void            kvmmap(uint64, uint64, uint64, int);
@@ -178,6 +185,7 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
+void            vmprint(pagetable_t, int);
 
 // plic.c
 void            plicinit(void);

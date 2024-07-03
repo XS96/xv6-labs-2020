@@ -84,23 +84,25 @@ enum procstate { UNUSED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
 // Per-process state
 struct proc {
-  struct spinlock lock;
-
+  struct spinlock lock;		   // 自旋锁 保证对进程状态的修改是线程安全的
   // p->lock must be held when using these:
-  enum procstate state;        // Process state
-  struct proc *parent;         // Parent process
-  void *chan;                  // If non-zero, sleeping on chan
-  int killed;                  // If non-zero, have been killed
-  int xstate;                  // Exit status to be returned to parent's wait
+  enum procstate state;        // 进程状态枚举
+  struct proc *parent;         // 父进程
+  void *chan;                  // 若进程在等待某个事件（睡眠状态），chan指向该事件
+  int killed;                  // 标志位，若不为零，则表示进程被杀死
+  int xstate;                  // 保存进程的退出状态，在父进程调用wait时被返回
   int pid;                     // Process ID
 
   // these are private to the process, so p->lock need not be held.
-  uint64 kstack;               // Virtual address of kernel stack
-  uint64 sz;                   // Size of process memory (bytes)
-  pagetable_t pagetable;       // User page table
-  struct trapframe *trapframe; // data page for trampoline.S
-  struct context context;      // swtch() here to run process
-  struct file *ofile[NOFILE];  // Open files
-  struct inode *cwd;           // Current directory
-  char name[16];               // Process name (debugging)
+  uint64 kstack;               // 进程内核栈的虚拟地址
+  uint64 sz;                   // 进程内存的大小 (bytes)
+
+  pagetable_t pagetable;       // 用户页表，用于虚拟地址到物理地址的映射
+  pagetable_t kenel_pagetable;  // 进程的内核页表
+
+  struct trapframe *trapframe; // data page for trampoline.S 指向一个陷阱帧结构体，用于保存进程的寄存器状态，以便在中断处理和系统调用时恢复
+  struct context context;      // swtch() here to run process 进程上下文，以便在进程切换时保存和恢复
+  struct file *ofile[NOFILE];  // 文件指针数组，保存进程打开的文件描述符
+  struct inode *cwd;           // 进程当前工作目录的指针
+  char name[16];               // 进程的名称（用于调试）
 };
