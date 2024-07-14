@@ -51,6 +51,9 @@ exec(char *path, char **argv)
     uint64 sz1;
     if((sz1 = uvmalloc(pagetable, sz, ph.vaddr + ph.memsz)) == 0)
       goto bad;
+//    if(sz1 >= PLIC) { // lab3.3 添加检测，防止程序大小超过 PLIC
+//      goto bad;
+//    }
     sz = sz1;
     if(ph.vaddr % PGSIZE != 0)
       goto bad;
@@ -74,6 +77,9 @@ exec(char *path, char **argv)
   uvmclear(pagetable, sz-2*PGSIZE);
   sp = sz;
   stackbase = sp - PGSIZE;
+
+  // lab3.3
+  //kvmcopymappings(pagetable, p->kenel_pagetable, 0, sz);
 
   // Push argument strings, prepare rest of stack in ustack.
   for(argc = 0; argv[argc]; argc++) {
@@ -107,7 +113,12 @@ exec(char *path, char **argv)
     if(*s == '/')
       last = s+1;
   safestrcpy(p->name, last, sizeof(p->name));
-    
+
+  // lab3.3
+  // 清除内核页表中对程序内存的旧映射，然后重新建立映射。
+//  uvmunmap(p->kenel_pagetable, 0, PGROUNDUP(oldsz)/PGSIZE, 0);
+//  kvmcopymappings(pagetable, p->kenel_pagetable, 0, sz);
+
   // Commit to the user image.
   oldpagetable = p->pagetable;
   p->pagetable = pagetable;
@@ -119,7 +130,8 @@ exec(char *path, char **argv)
   // lab3.1 print a page table
   if(p->pid == 1)
     vmprint(p->pagetable, 0);  // 打印第一个进程的页表
-   
+  // lab3.3
+  setupuvm2kvm(p->pagetable, p->kenel_pagetable, p->sz, 0);
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
  bad:

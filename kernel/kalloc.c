@@ -34,9 +34,12 @@ void
 freerange(void *pa_start, void *pa_end)
 {
   char *p;
+  //printf("freerange: PHYSTOP %p\n", pa_end);
   p = (char*)PGROUNDUP((uint64)pa_start);
+  //printf("freerange: pa_start %p\n", p);
   for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
     kfree(p);
+  //printf("freerange: pa_end %p\n", p);
 }
 
 // Free the page of physical memory pointed at by v,
@@ -56,6 +59,7 @@ kfree(void *pa)
 
   r = (struct run*)pa;
 
+  // 头插法 将空闲页面插入到空闲列表中
   acquire(&kmem.lock);
   r->next = kmem.freelist;
   kmem.freelist = r;
@@ -69,13 +73,13 @@ void *
 kalloc(void)
 {
   struct run *r;
-
+  // 由于空闲页面链表是共享资源，需要加锁来保证线程安全。
   acquire(&kmem.lock);
   r = kmem.freelist;
   if(r)
     kmem.freelist = r->next;
   release(&kmem.lock);
-
+  // 如果成功分配了页面（r 不为空），用值 5 填充整个页面。这是一种调试技术，可以帮助检测内存使用问题
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;

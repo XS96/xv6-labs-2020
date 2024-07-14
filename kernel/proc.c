@@ -40,15 +40,16 @@ procinit(void)
       // Map it high in memory, followed by an invalid
       // guard page.
       // 使用 kalloc 为进程的内核栈分配一页内存
-//      char *pa = kalloc();
-//      if(pa == 0)
-//        panic("kalloc");
-//      // 计算内核栈的虚拟地址 va，使用 KSTACK 宏，传入当前进程在 proc 数组中的索引
-//      uint64 va = KSTACK((int) (p - proc));
-//      // 将虚拟地址 va 映射到物理地址 pa，权限为读写
-//      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-//      // 将内核栈的虚拟地址 va 存储到进程结构体的 p->kstack 字段
-//      p->kstack = va;
+//    char *pa = kalloc();
+//    if(pa == 0)
+//      panic("kalloc");
+//    // 计算内核栈的虚拟地址 va，使用 KSTACK 宏，传入当前进程在 proc 数组中的索引
+//    uint64 va = KSTACK((int) (p - proc));
+//    //printf("procinit: p - proc %d\n", p - proc);
+//    // 将虚拟地址 va 映射到物理地址 pa，权限为读写
+//    kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+//    // 将内核栈的虚拟地址 va 存储到进程结构体的 p->kstack 字段
+//    p->kstack = va;
   }
   // 切换到内核的页表并启用分页
   kvminithart();
@@ -194,7 +195,7 @@ freeproc(struct proc *p)
 //  }
 //  void *kstack_pa = (void *)kvmpa(p->kstack);
 //  kfree(kstack_pa);
-  uvmunmap(p->kenel_pagetable, p->kstack, 1, 1);
+  uvmunmap(p->kenel_pagetable, p->kstack, 1, 1);    // 解除内核栈映射 并释放内核栈物理内存
   p->kstack = 0;
   if(p->kenel_pagetable)
     proc_freekpagetable(p->kenel_pagetable);
@@ -203,34 +204,34 @@ freeproc(struct proc *p)
 
 // Create a user page table for a given process,
 // with no user memory, but with trampoline pages.
+// 为进程p创建和初始化用户页表
 pagetable_t
 proc_pagetable(struct proc *p)
 {
   pagetable_t pagetable;
 
-  // An empty page table.
+  // 创建一个空的用户页表
   pagetable = uvmcreate();
   if(pagetable == 0)
     return 0;
 
-  // map the trampoline code (for system call return)
-  // at the highest user virtual address.
-  // only the supervisor uses it, on the way
-  // to/from user space, so not PTE_U.
+  // 映射trampoline代码（用于系统调用返回），
+  // 映射到最高的用户虚拟地址。
+  // 仅供内核使用，在进入/退出用户空间时使用，所以不设置PTE_U位
   if(mappages(pagetable, TRAMPOLINE, PGSIZE,
-              (uint64)trampoline, PTE_R | PTE_X) < 0){
+              (uint64)trampoline, PTE_R | PTE_X) < 0){      // trampoline 是一个在内核中定义的汇编代码，通常用于处理系统调用返回和上下文切换
     uvmfree(pagetable, 0);
     return 0;
   }
 
   // map the trapframe just below TRAMPOLINE, for trampoline.S.
   if(mappages(pagetable, TRAPFRAME, PGSIZE,
-              (uint64)(p->trapframe), PTE_R | PTE_W) < 0){
+              (uint64)(p->trapframe), PTE_R | PTE_W) < 0){   // p->trapframe 是指向进程的 trapframe 结构的指针，用于保存进程的上下文信息（例如寄存器值）以便在中断或系统调用时使用
     uvmunmap(pagetable, TRAMPOLINE, 1, 0);
     uvmfree(pagetable, 0);
     return 0;
   }
-
+  // 返回新创建的页表 pagetable
   return pagetable;
 }
 
@@ -252,9 +253,9 @@ proc_freekpagetable(pagetable_t pagetable)
     // there are 2^9 = 512 PTEs in a page table.
   for(int i = 0; i < 512; i++){
     pte_t pte = pagetable[i];
-    uint64 child = PTE2PA(pte);
     if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){ // 如果该页表项指向更低一级的页表
       // 递归释放低一级页表及其页表项
+      uint64 child = PTE2PA(pte);
       proc_freekpagetable((pagetable_t)child);
       pagetable[i] = 0;
     }
@@ -287,6 +288,9 @@ userinit(void)
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
+  //kvmcopymappings(p->pagetable, p->kenel_pagetable, 0, p->sz); // lab3.3 同步程序内存映射到进程内核页表中
+  // 将用户进程地址空间映射到用户内核页表当中
+  setupuvm2kvm(p->pagetable, p->kenel_pagetable, p->sz, 0);
 
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
@@ -296,7 +300,7 @@ userinit(void)
   p->cwd = namei("/");
 
   p->state = RUNNABLE;
-
+  //printf("userinit: p.pid = %d\n", p->pid);
   release(&p->lock);
 }
 
@@ -310,12 +314,28 @@ growproc(int n)
 
   sz = p->sz;
   if(n > 0){
+    // lab3.3 加上PLIC限制
+//    if (PGROUNDUP(sz + n) >= PLIC){
+//      return -1;
+//    }
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
+    //kvmcopymappings(p->pagetable, p->kenel_pagetable, sz, n);
+      // lab3.2 内核页表中的映射同步扩大
+//    if(!= 0) {
+//      uvmdealloc(p->pagetable, newsz, sz);
+//      return -1;
+//    }
+//    sz = newsz;
   } else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
+    // lab3.2 内核页表中的映射同步缩小
+    //sz = kvmdealloc(p->kenel_pagetable, sz, sz + n);
   }
+  // 将用户进程地址空间映射到用户内核页表当中
+  setupuvm2kvm(p->pagetable, p->kenel_pagetable, sz, p->sz);
+
   p->sz = sz;
   return 0;
 }
@@ -342,6 +362,9 @@ fork(void)
   }
   np->sz = p->sz;
 
+  // lab3.3
+  //kvmcopymappings(np->pagetable, np->kenel_pagetable, 0, p->sz);
+
   np->parent = p;
 
   // copy saved user registers.
@@ -361,6 +384,8 @@ fork(void)
   pid = np->pid;
 
   np->state = RUNNABLE;
+  // lab3.3 将用户进程地址空间映射到用户内核页表当中
+  setupuvm2kvm(np->pagetable, np->kenel_pagetable, np->sz, 0);
 
   release(&np->lock);
 

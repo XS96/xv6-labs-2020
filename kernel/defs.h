@@ -186,6 +186,10 @@ int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
 void            vmprint(pagetable_t, int);
+//int             kvmcopymappings(pagetable_t, pagetable_t, uint64, uint64);
+//uint64          kvmdealloc(pagetable_t, uint64, uint64);
+void            setupuvm2kvm(pagetable_t, pagetable_t, uint64, uint64);
+//void            kvmfree(pagetable_t, uint64);
 
 // plic.c
 void            plicinit(void);
@@ -209,6 +213,11 @@ void            statsinc(void);
 
 // sprintf.c
 int             snprintf(char*, int, char*, ...);
+
+// vmcopyin
+// lab3.3 声明新函数原型
+int             copyin_new(pagetable_t, char *, uint64, uint64);
+int             copyinstr_new(pagetable_t, char *, uint64, uint64);
 
 #ifdef LAB_NET
 // pci.c

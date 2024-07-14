@@ -336,19 +336,19 @@ sfence_vma()
 #define PA2PTE(pa) ((((uint64)pa) >> 12) << 10)
 
 #define PTE2PA(pte) (((pte) >> 10) << 12)
-
+// 从一个页表条目中提取出所有标志位 低10位
 #define PTE_FLAGS(pte) ((pte) & 0x3FF)
 
 // extract the three 9-bit page table indices from a virtual address.
-#define PXMASK          0x1FF // 9 bits
-#define PXSHIFT(level)  (PGSHIFT+(9*(level)))
-#define PX(level, va) ((((uint64) (va)) >> PXSHIFT(level)) & PXMASK)
+#define PXMASK          0x1FF // 9 bits 9 位二进制掩码
+#define PXSHIFT(level)  (PGSHIFT+(9*(level)))       // 根据页表层级计算出需要右移的位数 第 0 层，需要移12位; 第 1 层，移 21 位;第 2 层（最高层），需要移 30 位
+#define PX(level, va) ((((uint64) (va)) >> PXSHIFT(level)) & PXMASK)    // 根据页表层级 level 和虚拟地址 va 提取出相应的 9 位索引
 
 // one beyond the highest possible virtual address.
 // MAXVA is actually one bit less than the max allowed by
 // Sv39, to avoid having to sign-extend virtual addresses
 // that have the high bit set.
-#define MAXVA (1L << (9 + 9 + 9 + 12 - 1))
+#define MAXVA (1L << (9 + 9 + 9 + 12 - 1))      //38位虚拟地址 256G
 
 typedef uint64 pte_t;
 typedef uint64 *pagetable_t; // 512 PTEs
