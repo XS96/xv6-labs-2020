@@ -7,6 +7,8 @@
 #include "spinlock.h"
 #include "proc.h"
 
+//extern void backtrace(void);
+
 uint64
 sys_exit(void)
 {
@@ -52,6 +54,24 @@ sys_sbrk(void)
   return addr;
 }
 
+void
+backtrace()
+{
+    printf("backtrace:\n");
+    uint64 fp = r_fp();                 // 当前函数的帧指针
+
+    uint64 down = PGROUNDDOWN(fp);      // 栈底
+    uint64 up = PGROUNDUP(fp);          // 栈首
+
+    uint64 *frame = (uint64 *) fp;
+
+    while(fp < up && fp > down) {
+        printf("%p\n", frame[-1]);
+        fp = frame[-2];
+        frame = (uint64 *) fp;
+    }
+}
+
 uint64
 sys_sleep(void)
 {
@@ -70,6 +90,9 @@ sys_sleep(void)
     sleep(&ticks, &tickslock);
   }
   release(&tickslock);
+
+  // lab4.1
+  backtrace();
   return 0;
 }
 
@@ -94,4 +117,29 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+uint64
+sys_sigalarm(void)
+{
+    int ticks;              // 报警间隔
+    uint64 alarm_handler;   // 处理函数指针
+
+    argint(0, &ticks);
+    argaddr(1, &alarm_handler);
+
+    struct proc *p = myproc();
+    p->ticks = ticks;
+    p->alarm_handler = alarm_handler;
+    p->ticks_cnt = 0;
+    return 0;
+}
+
+uint64
+sys_sigreturn(void)
+{
+    struct proc *p = myproc();
+    p->alarm_handing = 0;
+    *p->trapframe = *p->ticks_trapframe;
+    return 0;
 }

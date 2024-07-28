@@ -105,6 +105,9 @@ extern uint64 sys_wait(void);
 extern uint64 sys_write(void);
 extern uint64 sys_uptime(void);
 
+extern uint64 sys_sigalarm(void);
+extern uint64 sys_sigreturn(void);
+
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
 [SYS_exit]    sys_exit,
@@ -127,6 +130,8 @@ static uint64 (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+[SYS_sigalarm]   sys_sigalarm,
+[SYS_sigreturn]   sys_sigreturn,
 };
 
 void
@@ -135,8 +140,10 @@ syscall(void)
   int num;
   struct proc *p = myproc();
 
+  // 从a7中拿到系统调用号
   num = p->trapframe->a7;
   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
+    // 调用对应系统调用 返回值存于a0
     p->trapframe->a0 = syscalls[num]();
   } else {
     printf("%d %s: unknown sys call %d\n",

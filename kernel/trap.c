@@ -41,8 +41,11 @@ usertrap(void)
   if((r_sstatus() & SSTATUS_SPP) != 0)
     panic("usertrap: not from user mode");
 
-  // send interrupts and exceptions to kerneltrap(),
-  // since we're now in the kernel.
+  /*
+    1. 更改STVEC寄存器
+    取决于trap是来自于用户空间还是内核空间，实际上XV6处理trap的方法是不一样的
+
+   */
   w_stvec((uint64)kernelvec);
 
   struct proc *p = myproc();
@@ -77,8 +80,21 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
-    yield();
+  if(which_dev == 2) {
+      // lab4. alarm
+      if(p->ticks != 0 ) {
+          p->ticks_cnt++;
+          if(p->alarm_handing == 0 && p->ticks_cnt == p->ticks) {
+              p->alarm_handing = 1;
+              p->ticks_cnt  = 0;
+              *p->ticks_trapframe = *p->trapframe;
+              p->trapframe->epc = p->alarm_handler;
+          }
+      }
+
+      yield();
+  }
+
 
   usertrapret();
 }
@@ -137,7 +153,7 @@ kerneltrap()
   uint64 sepc = r_sepc();
   uint64 sstatus = r_sstatus();
   uint64 scause = r_scause();
-  
+
   if((sstatus & SSTATUS_SPP) == 0)
     panic("kerneltrap: not from supervisor mode");
   if(intr_get() != 0)
