@@ -253,6 +253,38 @@ growproc(int n)
   return 0;
 }
 
+int
+is_lazy_alloc_page(uint64 va) {
+    struct proc *p = myproc();
+    if(va > p->sz) {
+        return 0;
+    }
+    if(va < PGROUNDDOWN(p->trapframe->sp) && va >= PGROUNDDOWN(p->trapframe->sp) - PGSIZE) {
+        return 0;
+    }
+    return 1;
+}
+
+int
+lazy_alloc_page(uint64 va) {
+    struct proc *p = myproc();
+    char *mem;
+    va = PGROUNDDOWN(va);
+    // printf("alloc page, new va: %p \n", va);
+    mem = kalloc();
+    if(mem == 0){
+        printf("alloc failed: mem = 0 \n");
+        return 0;
+    }
+    memset(mem, 0, PGSIZE);
+    if(mappages(p->pagetable, va, PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
+        printf("map page failed\n");
+        kfree(mem);
+        return 0;
+    }
+    return 1;
+}
+
 // Create a new process, copying the parent.
 // Sets up child kernel stack to return as if from fork() system call.
 int

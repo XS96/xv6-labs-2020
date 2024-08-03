@@ -86,6 +86,8 @@ int             cpuid(void);
 void            exit(int);
 int             fork(void);
 int             growproc(int);
+int             is_lazy_alloc_page(uint64 va);
+int             lazy_alloc_page(uint64 va);
 pagetable_t     proc_pagetable(struct proc *);
 void            proc_freepagetable(pagetable_t, uint64);
 int             kill(int);
