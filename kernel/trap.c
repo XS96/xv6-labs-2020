@@ -67,7 +67,20 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  } else if(r_scause() == 15 || r_scause() == 13) {
+      uint64 va = r_stval();
+//      printf("page error! va: %p\n", va);
+//      printf("p_sz: %p\n", p->sz);
+      if(is_cow_page(p->pagetable, va)) {
+//          printf("is cow page\n");
+          if(!cow_alloc_page(p->pagetable, va)) {
+//              printf("cow alloc failed! va: %p\n", va);
+              p->killed = 1;
+          }
+      } else{
+          p->killed = 1;
+      }
+  }else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;

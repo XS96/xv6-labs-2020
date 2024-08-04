@@ -2585,7 +2585,6 @@ countfree()
     printf("pipe() failed in countfree()\n");
     exit(1);
   }
-  
   int pid = fork();
 
   if(pid < 0){
@@ -2598,6 +2597,7 @@ countfree()
     
     while(1){
       uint64 a = (uint64) sbrk(4096);
+
       if(a == 0xffffffffffffffff){
         break;
       }
@@ -2629,6 +2629,7 @@ countfree()
       break;
     n += 1;
   }
+  printf("345345\n");
 
   close(fds[0]);
   wait((int*)0);
@@ -2774,8 +2775,9 @@ main(int argc, char *argv[])
   int fail = 0;
   for (struct test *t = tests; t->s != 0; t++) {
     if((justone == 0) || strcmp(t->s, justone) == 0) {
-      if(!run(t->f, t->s))
-        fail = 1;
+      if(!run(t->f, t->s)) {
+          fail = 1;
+      }
     }
   }
 

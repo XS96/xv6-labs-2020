@@ -6,6 +6,9 @@
 #include "defs.h"
 #include "fs.h"
 
+#include "spinlock.h"
+#include "proc.h"
+
 /*
  * the kernel's page table.
  */
@@ -159,6 +162,7 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
     if(*pte & PTE_V)
       panic("remap");
     *pte = PA2PTE(pa) | perm | PTE_V;
+
     if(a == last)
       break;
     a += PGSIZE;
@@ -299,6 +303,60 @@ uvmfree(pagetable_t pagetable, uint64 sz)
   freewalk(pagetable);
 }
 
+int
+is_cow_page(pagetable_t pagetable, uint64 va) {
+//    va = PGROUNDDOWN(va);
+//    printf("is_cow_page: %p\n", va);
+//    struct proc *p = myproc();
+//    if(va >= MAXVA || va > p->sz)
+//        return 0;
+//
+//    pte_t *pte = walk(pagetable, va, 0);
+//    if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0)
+//        return 0;
+//    return (*pte & PTE_COW);
+
+    pte_t *pte;
+    struct proc *p = myproc();
+
+    return va < p->sz // 在进程内存范围内
+           && ((pte = walk(p->pagetable, va, 0))!=0)
+           && (*pte & PTE_V) // 页表项存在
+           && (*pte & PTE_COW); // 页是一个懒复制页
+}
+
+int
+cow_alloc_page(pagetable_t pagetable, uint64 va) {
+    va = PGROUNDDOWN(va);
+//    printf("is_cow_page: %p\n", va);
+    pte_t *pte = walk(pagetable, va, 0);
+    uint64 pa = PTE2PA(*pte);
+
+    if(krefcnt((void*)pa) == 1) {
+        *pte |= PTE_W;
+        *pte &= ~PTE_COW;
+        return 1;
+    } else {
+        char *mem = kalloc();
+        if(mem == 0) {
+            return 0;
+        }
+        memmove(mem, (char *)pa, PGSIZE);
+        *pte &= ~PTE_V;
+        int flag = PTE_FLAGS(*pte);
+        flag &= (~PTE_COW);
+        flag |= PTE_W;
+        if(mappages(pagetable, va, PGSIZE, (uint64)mem, flag) < 0) {
+            kfree(mem);
+            *pte |= PTE_V;
+            return 0;
+        }
+//        kfree((char*)PGROUNDDOWN(pa));
+        kdescrefcnt((void *)PGROUNDDOWN(pa));
+    }
+    return 1;
+}
+
 // Given a parent process's page table, copy
 // its memory into a child's page table.
 // Copies both the page table and the
@@ -311,7 +369,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
+//  char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -320,13 +378,19 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    // lab5. cow
+//    if((mem = kalloc()) == 0)
+//      goto err;
+//    memmove(mem, (char*)pa, PGSIZE);
+    *pte = *pte & (~PTE_W);     // 清除父进程与子进程中的PTE_W标志
+    *pte = *pte | PTE_COW;      // 设置COW标志位
+    flags = PTE_FLAGS(*pte);
+//      if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
+    if(mappages(new, i, PGSIZE, pa, flags) != 0){
+//      kfree(mem);
       goto err;
     }
+    kaddrefcnt((void *)pa);
   }
   return 0;
 
@@ -358,6 +422,11 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
+    // lab5. cow
+    if(is_cow_page(pagetable, dstva)) {
+        cow_alloc_page(pagetable, dstva);
+    }
+
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
       return -1;
