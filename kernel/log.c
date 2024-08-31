@@ -38,13 +38,13 @@ struct logheader {
 };
 
 struct log {
-  struct spinlock lock;
-  int start;
-  int size;
-  int outstanding; // how many FS sys calls are executing.
-  int committing;  // in commit(), please wait.
-  int dev;
-  struct logheader lh;
+    struct spinlock lock;
+    int start;
+    int size;
+    int outstanding; // how many FS sys calls are executing.
+    int committing;  // in commit(), please wait.
+    int dev;
+    struct logheader lh;
 };
 struct log log;
 
